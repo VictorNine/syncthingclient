@@ -4,18 +4,29 @@ package syncthingclient
 
 type Client struct {
 	Remote Remote
+	Cert   tls.Certificate
 }
 
-// Upload uploades a stream to the remote filename specified
-func (c *Client) Upload(stream io.Writer, filename string) error {
+// LoadCertificate loads the syncthing certificate from file
+func (c *Client) LoadCertificate(certFile, keyFile string) error {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err == nil {
+		c.Cert = cert
+	}
+
+	return err
 }
 
-// Download retrives the specified filename and streams it
-func (c *Client) Download(stream io.Reader, filename string) error {
+// Upload uploades the "from" file to the remote "to" path specified
+func (c *Client) Upload(from, to string) error {
 }
 
-// GetFileList retrieves a file list for the folder
-func (c *Client) GetFileList(folder string) {
+// Download retrives the specified file and stores it in "to"
+func (c *Client) Download(from, to string) error {
+}
+
+// GetFileList retrieves a file list for the folder.
+func (c *Client) GetFileList(folder string) []string {
 }
 
 // GetSharedFolders retrieves the folders that are shared with this client
