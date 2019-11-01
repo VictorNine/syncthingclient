@@ -36,9 +36,56 @@ func (c *Client) Download(from, to string) error {
 	return errors.New("Not implemented")
 }
 
+type FileInfo struct {
+	Name string
+	Size int64
+	Type string
+}
+
 // GetFileList retrieves a file list for the folder.
-func (c *Client) GetFileList(folder string) []string {
-	return nil
+func (c *Client) GetFileList(folder string) ([]FileInfo, error) {
+	c.Remote.Callback.IndexRecived = make(chan bool)
+
+	c.Remote.connect(c.Cert)
+	defer c.Remote.close()
+
+	log.Println("Sending cluster config")
+
+	cc, err := c.Remote.MakeClusterConfig(folder)
+	if err != nil {
+		return nil, err
+	}
+
+	err = c.Remote.Send(cc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait for the callback
+	<-c.Remote.Callback.IndexRecived
+
+	fileList := make([]FileInfo, len(c.Remote.Index.Files))
+
+	for i, f := range c.Remote.Index.Files {
+		fileList[i] = FileInfo{
+			Name: folder + "/" + f.Name,
+			Size: f.Size,
+		}
+
+		switch f.Type {
+		case 0:
+			fileList[i].Type = "FILE"
+		case 1:
+			fileList[i].Type = "DIRECTORY"
+		default:
+			fileList[i].Type = "SYMLINK"
+		}
+	}
+
+	// Remote the callback
+	c.Remote.Callback.IndexRecived = nil
+
+	return fileList, nil
 }
 
 // GetSharedFolders retrieves the folders that are shared with this client

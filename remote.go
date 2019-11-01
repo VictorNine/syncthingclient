@@ -16,15 +16,16 @@ type Remote struct {
 	Host          string
 	done          bool // Operation is done, connection no longer needed
 	ClusterConfig *protocol.ClusterConfig
+	Index         *protocol.Index
 	Callback      Callback
 }
 
 //TODO:
 // Download Complete
 // Upload Complete
-// Index Received
 type Callback struct {
-	CCrecived chan bool
+	CCrecived    chan bool
+	IndexRecived chan bool
 }
 
 func (r *Remote) Send(data []byte) error {
@@ -61,6 +62,23 @@ func (remote *Remote) listener() {
 			if remote.Callback.CCrecived != nil {
 				remote.Callback.CCrecived <- true
 			}
+		}
+
+		// INDEX
+		if msg.GetHeader().Type == 1 {
+			index := &protocol.Index{}
+			err := proto.Unmarshal(msg.Message, index)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			remote.Index = index
+
+			// If we are waiting for the index send that we got it
+			if remote.Callback.IndexRecived != nil {
+				remote.Callback.IndexRecived <- true
+			}
+
 		}
 	}
 }
