@@ -7,12 +7,14 @@ import (
 	"github.com/syncthing/syncthing/lib/protocol"
 	"log"
 	"net"
+	"strings"
 )
 
 type Remote struct {
 	conn          net.Conn
 	DeviceID      protocol.DeviceID // The device ID of the remote instance
 	Host          string
+	done          bool // Operation is done, connection no longer needed
 	ClusterConfig *protocol.ClusterConfig
 	Callback      Callback
 }
@@ -20,7 +22,7 @@ type Remote struct {
 //TODO:
 // Download Complete
 // Upload Complete
-// Index Recived
+// Index Received
 type Callback struct {
 	CCrecived chan bool
 }
@@ -32,9 +34,13 @@ func (r *Remote) Send(data []byte) error {
 
 func (remote *Remote) listener() {
 	reply := make([]byte, 1024)
-	for {
+	for !remote.done {
 		n, err := remote.conn.Read(reply)
 		if err != nil {
+			// If we are done this error is ok, and we stop the loop
+			if strings.Contains(err.Error(), "use of closed network connection") && remote.done {
+				break
+			}
 			log.Fatalf("client: error: %s", err)
 		}
 
@@ -54,13 +60,13 @@ func (remote *Remote) listener() {
 			// If we are waiting for the cluster config send that we got it
 			if remote.Callback.CCrecived != nil {
 				remote.Callback.CCrecived <- true
-				break // We have the information we need, stop waiting
 			}
 		}
 	}
 }
 
 func (remote *Remote) close() {
+	remote.done = true // We are done and the for listener can be stopped
 	remote.conn.Close()
 }
 
