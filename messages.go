@@ -14,7 +14,8 @@ type Message struct {
 	Message       []byte
 }
 
-func decode(data []byte) Message {
+// Returns Message, if the message is not complete expected length is also returned
+func decode(data []byte) (Message, int) {
 	msg := Message{}
 
 	msg.HeaderLength = binary.BigEndian.Uint16(data[0:2])
@@ -30,10 +31,10 @@ func decode(data []byte) Message {
 	msg.Message = data[MsgStart+4:]
 
 	if len(msg.Message) != int(msg.MessageLength) {
-		log.Fatal("Wrong message length")
+		return msg, int(msg.MessageLength) + 4 + int(msg.HeaderLength) + 2
 	}
 
-	return msg
+	return msg, 0
 }
 
 func (msg *Message) GetHeader() *protocol.Header {
@@ -47,7 +48,7 @@ func (msg *Message) GetHeader() *protocol.Header {
 	header := &protocol.Header{}
 	err := proto.Unmarshal(msg.Header, header)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("GetHeader() " + err.Error())
 	}
 
 	return header
@@ -121,6 +122,51 @@ func (remote *Remote) MakeClusterConfig(folderID string) ([]byte, error) {
 	}
 
 	m, err := makeMessage(0, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+func MakeRequst(ID int32, rootFolder string, name string, offset int64, size int32, hash []byte) ([]byte, error) {
+	req := &protocol.Request{
+		ID:            ID,
+		Folder:        rootFolder,
+		Name:          name, // Full namepath relative to the folder root
+		Offset:        offset,
+		Size:          size,
+		Hash:          hash,
+		FromTemporary: false,
+	}
+
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	m, err := makeMessage(3, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// Rigth now only used for testing
+func MakeResponse(id int32, data []byte) ([]byte, error) {
+	resp := &protocol.Response{
+		ID:   id,
+		Data: []byte(data),
+		Code: 0,
+	}
+
+	data, err := proto.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	m, err := makeMessage(4, data)
 	if err != nil {
 		return nil, err
 	}

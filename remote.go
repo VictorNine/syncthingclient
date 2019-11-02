@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/golang/protobuf/proto"
 	"github.com/syncthing/syncthing/lib/protocol"
+	"io"
 	"log"
 	"net"
 	"strings"
@@ -21,11 +22,11 @@ type Remote struct {
 }
 
 //TODO:
-// Download Complete
 // Upload Complete
 type Callback struct {
-	CCrecived    chan bool
-	IndexRecived chan bool
+	CCrecived       chan bool
+	IndexRecived    chan bool
+	ResponseRecived chan *protocol.Response
 }
 
 func (r *Remote) Send(data []byte) error {
@@ -33,10 +34,49 @@ func (r *Remote) Send(data []byte) error {
 	return err
 }
 
-func (remote *Remote) listener() {
+// get message from reader
+func getMessage(reader io.Reader) (Message, error) {
 	reply := make([]byte, 1024)
+
+	n, err := reader.Read(reply)
+	if err != nil {
+		return Message{}, err
+	}
+
+	msg, left := decode(reply[:n])
+	if left > 0 { // Did not get full message
+		left = left - n
+		buffer := make([]byte, 0) // TODO: Allocate the full buffer in stead
+		buffer = append(buffer, reply[:n]...)
+
+		for {
+			re := io.LimitReader(reader, int64(len(reply)))
+
+			if len(reply) > left {
+				re = io.LimitReader(reader, int64(left))
+			}
+
+			n, err := re.Read(reply)
+			if err != nil {
+				return msg, err
+			}
+			buffer = append(buffer, reply[:n]...)
+
+			left = left - n
+			if left == 0 {
+				break
+			}
+		}
+		msg, _ = decode(buffer)
+	}
+
+	return msg, nil
+}
+
+func (remote *Remote) listener() {
 	for !remote.done {
-		n, err := remote.conn.Read(reply)
+		msg, err := getMessage(remote.conn)
+
 		if err != nil {
 			// If we are done this error is ok, and we stop the loop
 			if strings.Contains(err.Error(), "use of closed network connection") && remote.done {
@@ -44,8 +84,6 @@ func (remote *Remote) listener() {
 			}
 			log.Fatalf("client: error: %s", err)
 		}
-
-		msg := decode(reply[:n])
 
 		log.Printf("New message type = %s\n", msg.GetHeader().Type)
 
@@ -78,7 +116,21 @@ func (remote *Remote) listener() {
 			if remote.Callback.IndexRecived != nil {
 				remote.Callback.IndexRecived <- true
 			}
+		}
 
+		// RESPONSE
+		if msg.GetHeader().Type == 4 {
+			response := &protocol.Response{}
+			err := proto.Unmarshal(msg.Message, response)
+			if err != nil {
+				log.Fatal("Listen() RESPONSE " + err.Error())
+			}
+
+			if response.Code != 0 {
+				log.Fatalf("Response error: %v\n", response.Code)
+			}
+
+			remote.Callback.ResponseRecived <- response
 		}
 	}
 }
