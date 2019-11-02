@@ -140,6 +140,33 @@ func (remote *Remote) close() {
 	remote.conn.Close()
 }
 
+func Handshake(conn *tls.Conn, hello *protocol.Hello, exptectedID protocol.DeviceID) error {
+	rHello, err := protocol.ExchangeHello(conn, hello)
+	if err != nil {
+		return err
+	}
+
+	log.Println("Got hello from " + rHello.DeviceName + " (" + rHello.ClientName + " " + rHello.ClientVersion + ")")
+
+	state := conn.ConnectionState()
+	if len(state.PeerCertificates) != 1 {
+		return errors.New("To many certificates")
+	}
+
+	remoteID := protocol.NewDeviceID(state.PeerCertificates[0].Raw)
+	log.Printf("Remote ID = %s", remoteID)
+
+	if remoteID != exptectedID {
+		return errors.New("Device id did not match with certificate")
+	}
+
+	if !state.HandshakeComplete {
+		return errors.New("Handshake not Complete")
+	}
+
+	return nil
+}
+
 func (remote *Remote) connect(cert tls.Certificate) error {
 	config := tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: true}
 	conn, err := tls.Dial("tcp", remote.Host, &config)
@@ -156,27 +183,9 @@ func (remote *Remote) connect(cert tls.Certificate) error {
 		ClientVersion: "v0.0.1",
 	}
 
-	rHello, err := protocol.ExchangeHello(conn, hello)
+	err = Handshake(conn, hello, remote.DeviceID)
 	if err != nil {
 		return err
-	}
-
-	log.Println("Got hello from " + rHello.DeviceName + " (" + rHello.ClientName + " " + rHello.ClientVersion + ")")
-
-	state := conn.ConnectionState()
-	if len(state.PeerCertificates) != 1 {
-		return errors.New("To many certificates")
-	}
-
-	remoteID := protocol.NewDeviceID(state.PeerCertificates[0].Raw)
-	log.Printf("Remote ID = %s", remoteID)
-
-	if remoteID != remote.DeviceID {
-		return errors.New("Device id did not match with certificate")
-	}
-
-	if !state.HandshakeComplete {
-		return errors.New("Handshake not Complete")
 	}
 
 	remote.conn = conn
